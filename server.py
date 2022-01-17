@@ -2,6 +2,7 @@ from adafruit_board_toolkit.circuitpython_serial import data_comports
 import json
 import logging
 import paho.mqtt.client as mqtt
+from secrets import secret
 import serial
 import sys
 import time
@@ -27,8 +28,8 @@ def detect_port() -> str:
 def sendMessage(message:str):
     port = detect_port()
     with serial.Serial(port=port) as s:
-        bytesToWrite = bytes(message, "utf-8")
-        s.write(bytesToWrite)
+        # bytesToWrite = bytes(message, "utf-8")
+        s.write(message)
     return
 
 ## MQTT functions
@@ -44,7 +45,7 @@ def on_publish(client:mqtt.Client, userdata, mid):
 def on_message(client:mqtt.Client, userdata, msg):
     global publishedWindow
     print(f"{msg.topic} {str(msg.payload)}")
-    publishedWindow = json.loads(msg.payload)
+    sendMessage(msg.payload)
     return
 
 def on_disconnect(client:mqtt.Client, userdata, rc):
@@ -115,6 +116,8 @@ def getActiveWindow() -> dict:
         sysPlatform = "mac"
         # http://stackoverflow.com/a/373310/562769
         from AppKit import NSWorkspace
+        if NSWorkspace is None:
+            return None
         active_window_name = (NSWorkspace.sharedWorkspace()
                               .activeApplication()['NSApplicationName'])
     else:
@@ -125,14 +128,29 @@ def getActiveWindow() -> dict:
     return {"name": active_window_name, "platform": sysPlatform} 
 
 if __name__ == '__main__':
+    client = mqtt.Client(
+        client_id=secret['computerName'],
+        transport="websockets",
+    )
+    client.on_connect = on_connect
+    client.on_message = on_message
+    client.on_publish = on_publish
+    client.on_disconnect = on_disconnect
+    client.tls_set()
+    client.username_pw_set(secret['mqttUsername'], secret['mqttPassword'])
+    client.connect(secret['mqttURL'], port=secret['mqttPort'])
+    client.loop_start()
+    activeWindow = {}
+    # sendMessage("Connected\n")
     try:
-        activeWindow = {}
-        sendMessage("Connected\n")
         while True:
             currentWindow = getActiveWindow()
-            if activeWindow != currentWindow:
+            if activeWindow != currentWindow and currentWindow is not None:
                 activeWindow = currentWindow
-                print(activeWindow)
+                client.publish(
+                    topic=f"macropad/focus/{secret['computerName']}",
+                    payload=json.dumps(activeWindow)
+                )
 
     except KeyboardInterrupt:
         print("")
