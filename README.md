@@ -1,2 +1,2 @@
 # MacroPadMJP
-Custom MacroPad RPC to MQTT connection focused on MAC and Remote Desktop Connection
+Custom MacroPad RPC to MQTT connection focused on macOS and Remote Desktop Connection
