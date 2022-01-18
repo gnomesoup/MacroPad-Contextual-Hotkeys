@@ -14,21 +14,23 @@ logging.basicConfig(format='%(asctime)s %(levelname)s %(message)s',
 SUBSCRIBE_TOPIC = "macropad/focus/#"
 
 ## Serial connection functions
-def detect_port() -> str:
+def DetectPort() -> str:
     comports = data_comports()
     ports = [
         comport.device for comport in comports
         if comport.description.startswith("Macropad")
     ]
     if len(ports) > 0:
+        print(ports[0])
         return ports[0]
     else:
         raise RuntimeError("Unable to find MacroPad")
 
-def sendMessage(message:str):
-    port = detect_port()
+def SendMessage(message:str):
+    port = DetectPort()
     with serial.Serial(port=port) as s:
-        # bytesToWrite = bytes(message, "utf-8")
+        print(f"s.out_waiting = {s.out_waiting}")
+        s.reset_output_buffer()
         s.write(message)
     return
 
@@ -39,13 +41,13 @@ def on_connect(client:mqtt.Client, userdata, flags:dict, rc):
     return
 
 def on_publish(client:mqtt.Client, userdata, mid):
-    print(f"Publish to topic {mid}")
+    # print(f"Publish to topic {mid}")
     return
 
 def on_message(client:mqtt.Client, userdata, msg):
     global publishedWindow
-    print(f"{msg.topic} {str(msg.payload)}")
-    sendMessage(msg.payload)
+    # print(f"{msg.topic} {str(msg.payload)}")
+    SendMessage(msg.payload)
     return
 
 def on_disconnect(client:mqtt.Client, userdata, rc):
@@ -116,10 +118,10 @@ def getActiveWindow() -> dict:
         sysPlatform = "mac"
         # http://stackoverflow.com/a/373310/562769
         from AppKit import NSWorkspace
-        if NSWorkspace is None:
+        activeApplication = NSWorkspace.sharedWorkspace().activeApplication()
+        if activeApplication is None:
             return None
-        active_window_name = (NSWorkspace.sharedWorkspace()
-                              .activeApplication()['NSApplicationName'])
+        active_window_name = activeApplication['NSApplicationName']
     else:
         sysPlatform = None
         print("sys.platform={platform} is unknown. Please report."
@@ -141,7 +143,6 @@ if __name__ == '__main__':
     client.connect(secret['mqttURL'], port=secret['mqttPort'])
     client.loop_start()
     activeWindow = {}
-    # sendMessage("Connected\n")
     try:
         while True:
             currentWindow = getActiveWindow()
