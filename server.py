@@ -21,7 +21,7 @@ def DetectPort() -> str:
         if comport.description.startswith("Macropad")
     ]
     if len(ports) > 0:
-        print(ports[0])
+        # print(ports[0])
         return ports[0]
     else:
         raise RuntimeError("Unable to find MacroPad")
@@ -46,7 +46,7 @@ def on_publish(client:mqtt.Client, userdata, mid):
 
 def on_message(client:mqtt.Client, userdata, msg):
     global publishedWindow
-    # print(f"{msg.topic} {str(msg.payload)}")
+    print(f"{msg.topic} {str(msg.payload)}")
     SendMessage(msg.payload)
     return
 
