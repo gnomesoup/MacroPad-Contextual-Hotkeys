@@ -149,10 +149,18 @@ async def HandleEncoder(macropad:MacroPad, macroPadState:MacroPadState):
             macroPadState.targetMode = SwitchMode.SWITCH if \
                 macroPadState.currentMode != SwitchMode.SWITCH \
                 else SwitchMode.APP
-
-        if macropad.encoder != macroPadState.position:
+        encoderDifference = macropad.encoder - macroPadState.position
+        if encoderDifference != 0:
+            if macroPadState.currentMode != SwitchMode.SWITCH:
+                if encoderDifference > 0:
+                    macropad.consumer_control.send(
+                        macropad.ConsumerControlCode.VOLUME_INCREMENT
+                    )
+                else:
+                    macropad.consumer_control.send(
+                        macropad.ConsumerControlCode.VOLUME_DECREMENT
+                    )
             macroPadState.position = macropad.encoder
-            print(max(0, macroPadState.position / 64))
         await asyncio.sleep(0)
 
 async def ModeSwitch(
@@ -213,8 +221,6 @@ async def LoadApp(
             else:
                 currentApp = targetApp
             macroPadState.currentApp = currentApp
-            print(f"app keys: {apps.keys()}")
-            print(f"currentApp = {currentApp}")
             appData = apps[currentApp]
             print(
                 f"Load App: {appData['name']}"
