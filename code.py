@@ -5,16 +5,16 @@ from adafruit_hid.consumer_control_code import ConsumerControlCode
 import asyncio
 import displayio
 import json
+import os
 from rainbowio import colorwheel
 import terminalio
 import time
 import usb_cdc
 
-class ColorIndex:
-    def __init__(self):
-        self.value = 0
+MACRO_FOLDER = "/macros"
 
 class ServerData:
+    """Class to store incoming serial data from the host device"""
     def __init__(self):
         self.name = ""
         self.platform = ""
@@ -38,6 +38,10 @@ class SwitchMode:
     """Mode for active online meeting"""
 
 class MacroPadState:
+    """
+    Class to store the current state of the macropad to share across async
+    functions
+    """
     def __init__(self):
         self.pressed = set()
         self.values = [0x000000] * 12
@@ -48,8 +52,19 @@ class MacroPadState:
         self.currentMode = SwitchMode.APP
         self.targetMode = SwitchMode.APP
         self.appAutoSwitch = True
+        self.apps = {
+            "idle": {
+                "name": "Adafruit MacroPad",
+                "appName": 'Idle',
+                "platform": 'none',
+                "macros": [(0x000000, "", "")] * 12
+            }
+        }
+        self.targetApp = "mac-Default"
+        self.currentApp = None
 
 async def GetServerData(serial:usb_cdc.data, data: ServerData):
+    """Get data from server and store in server data class"""
     while True:
         if data.readTime is not None and time.monotonic() - data.readTime > 0.5:
             data.buffer = b""
@@ -63,9 +78,10 @@ async def GetServerData(serial:usb_cdc.data, data: ServerData):
             print(data.name)
         except ValueError:
             pass
-        await asyncio.sleep(0.1)
+        await asyncio.sleep(0)
 
 def ReadSerial(serial:usb_cdc.data, data: ServerData) -> str:
+    """Read incoming serial data"""
     available = serial.in_waiting
     text = ""
     while available:
@@ -75,19 +91,57 @@ def ReadSerial(serial:usb_cdc.data, data: ServerData) -> str:
         available = serial.in_waiting
     return text
 
-async def colorChange(
+async def IdleState(
     macropad:MacroPad, macroPadState:MacroPadState
 ):
+    """Handle key colors in idle states"""
     while True:
-        colorInterval = max(0, macroPadState.position / 64)
-        for pin in range(12):
-            if pin not in macroPadState.pressed:
-                macropad.pixels[pin] = colorwheel(macroPadState.colorIndex)
-            macroPadState.values[pin] = colorwheel(macroPadState.colorIndex)
-        macroPadState.colorIndex = (macroPadState.colorIndex + int(1)) % 256
+        colorInterval = 0.5
+        if macroPadState.currentMode == SwitchMode.IDLE:
+            for pin in range(12):
+                if pin not in macroPadState.pressed:
+                    macropad.pixels[pin] = colorwheel(macroPadState.colorIndex)
+                macroPadState.values[pin] = colorwheel(macroPadState.colorIndex)
+            macroPadState.colorIndex = (macroPadState.colorIndex + int(1)) % 256
         await asyncio.sleep(colorInterval)
 
-async def GetPressedKey(macropad:MacroPad, macroPadState:MacroPadState):
+async def HandlePressedKey(macropad:MacroPad, macroPadState:MacroPadState):
+    """Poll keys for state changes"""
+    while True:
+        keyEvent = macropad.keys.events.get()
+        if keyEvent:
+            print("keyEvent")
+            appData = macroPadState.apps[macroPadState.currentApp]
+            sequence = appData['macros'][keyEvent.key_number][2]
+            print(f"keyEvent: {keyEvent}")
+            if keyEvent.pressed:
+                macropad.pixels[keyEvent.key_number] = 0xAAAAAA
+                macroPadState.pressed.add(keyEvent.key_number)
+                for item in sequence:
+                    print(item)
+                    if isinstance(item, int):
+                        if item >= 0:
+                            macropad.keyboard.press(item)
+                        else:
+                            macropad.keyboard.release(-item)
+                    elif isinstance(item, float):
+                        time.sleep(item)
+                    else:
+                        macropad.keyboard_layout.write(item)
+            else:
+                for item in sequence:
+                    if isinstance(item, int):
+                        if item >= 0:
+                            macropad.keyboard.release(item)
+            if keyEvent.released:
+                macropad.pixels[keyEvent.key_number] = appData['macros'][
+                    keyEvent.key_number
+                ][0]
+                macroPadState.pressed.remove(keyEvent.key_number)
+        await asyncio.sleep(0)
+
+async def HandleEncoder(macropad:MacroPad, macroPadState:MacroPadState):
+    """Poll encoder position for changes"""
     while True:
         macropad.encoder_switch_debounced.update()
         encoderSwitch = macropad.encoder_switch_debounced.pressed
@@ -96,49 +150,57 @@ async def GetPressedKey(macropad:MacroPad, macroPadState:MacroPadState):
                 macroPadState.currentMode != SwitchMode.SWITCH \
                 else SwitchMode.APP
 
-        keyEvent = macropad.keys.events.get()
-        if keyEvent:
-            if keyEvent.pressed:
-                macropad.pixels[keyEvent.key_number] = 0xAAAAAA
-                macroPadState.pressed.add(keyEvent.key_number)
-            if keyEvent.released:
-                macropad.pixels[keyEvent.key_number] = macroPadState.values[
-                    keyEvent.key_number
-                ]
-                macroPadState.pressed.remove(keyEvent.key_number)
-        await asyncio.sleep(0)
-
-async def GetEncoderState(macropad:MacroPad, macroPadState:MacroPadState):
-    while True:
         if macropad.encoder != macroPadState.position:
             macroPadState.position = macropad.encoder
             print(max(0, macroPadState.position / 64))
         await asyncio.sleep(0)
 
-async def SwitchStates(
+async def SwitchModes(
     macropad:MacroPad,
     macroPadState:MacroPadState,
     data:ServerData
 ):
+    """Change modes of the macropad"""
     while True:
         if macroPadState.targetMode != macroPadState.currentMode:
             print("Mode Switch")
             print(f"targetMode = {macroPadState.targetMode}")
             print(f"currentMode = {macroPadState.currentMode}")
-            if macroPadState.targetMode == SwitchMode.SWITCH:
+            if macroPadState.targetMode == SwitchModes.SWITCH:
                 macroPadState.displayGroup[13].text = "Switch Mode"
                 macroPadState.displayGroup[0].text = "<"
                 macroPadState.displayGroup[1].text = "Test"
                 macroPadState.displayGroup[2].text = ">"
-            elif macroPadState.targetMode == SwitchMode.IDLE:
+            elif macroPadState.targetMode == SwitchModes.IDLE:
                 macroPadState.displayGroup[13].text = "Sleeping..."
-            elif macroPadState.targetMode == SwitchMode.APP:
+            elif macroPadState.targetMode == SwitchModes.APP:
                 data.updated = True
             macroPadState.currentMode = macroPadState.targetMode
-        if data.updated and macroPadState.currentMode == SwitchMode.APP:
+        if data.updated and macroPadState.currentMode == SwitchModes.APP:
             macroPadState.displayGroup[13].text = data.name
             data.updated = False
             macropad.display.refresh()
+        await asyncio.sleep(0)
+
+async def LoadApp(
+    macropad:MacroPad,
+    macroPadState:MacroPadState
+):
+    """Poll for app changes and load up required info"""
+    while True:
+        if macroPadState.currentApp != macroPadState.targetApp:
+            currentApp = macroPadState.targetApp
+            macroPadState.currentApp = currentApp
+            appData = macroPadState.apps[currentApp]
+            print(
+                f"Load App: {appData['name']}"
+            )
+            macroPadState.displayGroup[13].text = appData['name']
+            for i, macro in enumerate(appData['macros']):
+                if i > 11:
+                    continue
+                macropad.pixels[i] = macro[0]
+                macroPadState.displayGroup[i].text = macro[1]
         await asyncio.sleep(0)
 
 async def main():
@@ -147,6 +209,27 @@ async def main():
     macropad = MacroPad()
     macroPadState = MacroPadState()
     macroPadState.displayGroup = displayio.Group()
+    
+    files = os.listdir(MACRO_FOLDER)
+    files.sort()
+    for filename in files:
+        if filename.endswith('.py'):
+            try:
+                # module = __import__(f"{MACRO_FOLDER}/{filename[:-3]}")
+                module = __import__("{}/{}".format(MACRO_FOLDER, filename[:-3]))
+                appKey = f"{module.app['platform']}-{module.app['appName']}"
+                macroPadState.apps[appKey] = module.app
+            except (
+                AttributeError,
+                ImportError,
+                IndexError,
+                KeyError,
+                NameError,
+                SyntaxError,
+                TypeError,
+            ):
+                print(f"Error Loading Macros: {filename}")
+
     for keyIndex in range(12):
         x = keyIndex % 3
         y = keyIndex // 3
@@ -175,27 +258,31 @@ async def main():
         )
     )
     macropad.display.show(macroPadState.displayGroup)
-    colorTask = asyncio.create_task(
-        colorChange(macropad, macroPadState)
+    idleState = asyncio.create_task(
+        IdleState(macropad, macroPadState)
     )
     getServerData = asyncio.create_task(
         GetServerData(serial, serverData)
     )
-    getPressedKey = asyncio.create_task(
-        GetPressedKey(macropad, macroPadState)
+    handlePressedKey = asyncio.create_task(
+        HandlePressedKey(macropad, macroPadState)
     )
-    getEncoderState = asyncio.create_task(
-        GetEncoderState(macropad, macroPadState)
+    handleEncoder = asyncio.create_task(
+        HandleEncoder(macropad, macroPadState)
     )
-    switchStates = asyncio.create_task(
-        SwitchStates(macropad, macroPadState, serverData)
+    switchModes = asyncio.create_task(
+        SwitchModes(macropad, macroPadState, serverData)
+    )
+    loadApp = asyncio.create_task(
+        LoadApp(macropad, macroPadState)
     )
     await asyncio.gather(
         getServerData,
-        colorTask,
-        getPressedKey,
-        getEncoderState,
-        switchStates
+        idleState,
+        handlePressedKey,
+        handleEncoder,
+        switchModes,
+        loadApp
     )
 
 asyncio.run(main())
