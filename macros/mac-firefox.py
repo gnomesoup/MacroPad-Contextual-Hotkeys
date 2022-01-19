@@ -4,8 +4,8 @@ from adafruit_hid.keycode import Keycode  # REQUIRED if using Keycode.* values
 
 app = {
     # REQUIRED dict, must be named 'app'
-    'name': 'Mac',  # Application name
-    'appName': 'Default',
+    'name': 'Firefox',  # Application name
+    'appName': 'Firefox',
     'platform': 'mac',
     'macros': [           # List of button macros...
         # COLOR    LABEL    KEY SEQUENCE
@@ -38,16 +38,7 @@ app = {
         ]),
         (0x000000, '', ''),
         # 3rd row ----------
-        (0xa000a0, 'FFPri', [
-            Keycode.COMMAND,
-            Keycode.SPACE,
-            -Keycode.SPACE,
-            0.1,
-            -Keycode.COMMAND,
-            'firefox',
-            Keycode.ENTER,
-            -Keycode.ENTER,
-            0.1,
+        (0xa000a0, 'Priv', [
             Keycode.COMMAND,
             Keycode.SHIFT,
             Keycode.P

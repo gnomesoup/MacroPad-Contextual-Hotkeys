@@ -29,7 +29,6 @@ def DetectPort() -> str:
 def SendMessage(message:str):
     port = DetectPort()
     with serial.Serial(port=port) as s:
-        print(f"s.out_waiting = {s.out_waiting}")
         s.reset_output_buffer()
         s.write(message)
     return
