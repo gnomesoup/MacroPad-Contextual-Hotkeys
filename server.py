@@ -1,93 +1,59 @@
 from adafruit_board_toolkit.circuitpython_serial import data_comports
+import asyncio
 import json
-import logging
-import paho.mqtt.client as mqtt
-from secrets import secret
 import serial
 import sys
 import time
 
-logging.basicConfig(format='%(asctime)s %(levelname)s %(message)s',
-                    level=logging.DEBUG,
-                    stream=sys.stdout)
+PLATFORM = sys.platform
+WINDOW_LIBRARY = None
 
-SUBSCRIBE_TOPIC = "macropad/focus/#"
+class ActiveWindowData:
+    """Handle Active Window information across async calls"""
+    def __init__(self) -> None:
+        self.WindowName = ""
 
-## Serial connection functions
-def DetectPort() -> str:
-    comports = data_comports()
-    ports = [
-        comport.device for comport in comports
-        if comport.description.startswith("Macropad")
-    ]
-    if len(ports) > 0:
-        # print(ports[0])
-        return ports[0]
-    else:
-        raise RuntimeError("Unable to find MacroPad")
+# class MQTTData:
+#     """Handle MQTT information across async calls"""
+#     def __init__(self) -> None:
+#         self.data = None
 
-def SendMessage(message:str):
-    port = DetectPort()
-    with serial.Serial(port=port) as s:
-        s.reset_output_buffer()
-        s.write(message)
-    return
+class MacropadData:
+    """Handle MacroPad serial data across async calls"""
+    def __init__(self) -> None:
+        self.Connected = False
+        self.Port = ""
+        self.Buffer = ""
+        self.Message = b""
+        self.Incoming = ""
+        self.ReadStart = None
 
-## MQTT functions
-def on_connect(client:mqtt.Client, userdata, flags:dict, rc):
-    print(f"Connected with result code {rc}")
-    client.subscribe(SUBSCRIBE_TOPIC)
-    return
 
-def on_publish(client:mqtt.Client, userdata, mid):
-    # print(f"Publish to topic {mid}")
-    return
-
-def on_message(client:mqtt.Client, userdata, msg):
-    global publishedWindow
-    print(f"{msg.topic} {str(msg.payload)}")
-    SendMessage(msg.payload)
-    return
-
-def on_disconnect(client:mqtt.Client, userdata, rc):
-    print(f"Disconnected with result code {rc}")
-    return
-
-## Get active window functions
-def getActiveWindow() -> dict:
-    """
-    Get the currently active window.
-    Returns
-    -------
-    dict:
-        Name of the currently active window.
-    """
-    import sys
-    active_window_name = None
-    if sys.platform in ['linux', 'linux2']:
-        sysPlatform = 'linux'
-        # Alternatives: http://unix.stackexchange.com/q/38867/4784
+if PLATFORM in ['linux', 'linux2']:
+    print("Loading setting for linux")
+    PLATFORM = "linux"
+    if WINDOW_LIBRARY is None:
         try:
             import wnck
+            WINDOW_LIBRARY = "wnck"
+            def GetActiveWindowName() -> str:
+                active_window_name = ""
+                screen = wnck.screen_get_default()
+                screen.force_update()
+                window = screen.get_active_window()
+                if window is not None:
+                    pid = window.get_pid()
+                    with open("/proc/{pid}/cmdline".format(pid=pid)) as f:
+                        active_window_name = f.read()
+                return active_window_name
         except ImportError:
-            logging.info("wnck not installed")
-            wnck = None
-        if wnck is not None:
-            screen = wnck.screen_get_default()
-            screen.force_update()
-            window = screen.get_active_window()
-            if window is not None:
-                pid = window.get_pid()
-                with open("/proc/{pid}/cmdline".format(pid=pid)) as f:
-                    active_window_name = f.read()
-        else:
-            try:
-                from gi.repository import Gtk, Wnck
-                gi = "Installed"
-            except ImportError:
-                logging.info("gi.repository not installed")
-                gi = None
-            if gi is not None:
+            WINDOW_LIBRARY = None
+    if WINDOW_LIBRARY is None:
+        try:
+            from gi.repository import Gtk, Wnck
+            WINDOW_LIBRARY = "gi"
+            def GetActiveWindowName() -> str:
+                active_window_name = ""
                 Gtk.init([])  # necessary if not using a Gtk.main() loop
                 screen = Wnck.Screen.get_default()
                 screen.force_update()  # recommended per Wnck documentation
@@ -95,12 +61,17 @@ def getActiveWindow() -> dict:
                 pid = active_window.get_pid()
                 with open("/proc/{pid}/cmdline".format(pid=pid)) as f:
                     active_window_name = f.read()
-    elif sys.platform in ['Windows', 'win32', 'cygwin']:
-        sysPlatform = "windows"
-        # http://stackoverflow.com/a/608814/562769
-        import win32gui
-        import win32process
-        from wmi import WMI
+                return active_window_name
+        except ImportError:
+            WINDOW_LIBRARY = None
+elif PLATFORM in ["Windows", "win32", "cygwin"]:
+    PLATFORM = "windows"
+    print("Loading setting for windows")
+    import win32gui
+    import win32process
+    from wmi import WMI
+    def GetActiveWindowName() -> str:
+        active_window_name = ""
         wmi = WMI()
         window = win32gui.GetForegroundWindow()
         try: 
@@ -113,45 +84,93 @@ def getActiveWindow() -> dict:
             active_window_name = exe
         except:
             active_window_name = win32gui.GetWindowText(window)
-    elif sys.platform in ['Mac', 'darwin', 'os2', 'os2emx']:
-        sysPlatform = "mac"
-        # http://stackoverflow.com/a/373310/562769
-        from AppKit import NSWorkspace
+        return active_window_name
+elif PLATFORM in ["Mac", "darwin", "os2", "os2emx"]:
+    PLATFORM = "mac"
+    print("Loading setting for mac")
+    from AppKit import NSWorkspace
+    def GetActiveWindowName() -> str:
         activeApplication = NSWorkspace.sharedWorkspace().activeApplication()
         if activeApplication is None:
             return None
-        active_window_name = activeApplication['NSApplicationName']
-    else:
-        sysPlatform = None
-        print("sys.platform={platform} is unknown. Please report."
-              .format(platform=sys.platform))
-        print(sys.version)
-    return {"name": active_window_name, "platform": sysPlatform} 
+        return activeApplication['NSApplicationName']
+else:
+    print(f"sys.platform={PLATFORM} is unknown. Please report.")
+    print(sys.version)
+    exit()
 
-if __name__ == '__main__':
-    client = mqtt.Client(
-        client_id=secret['computerName'],
-        transport="websockets",
-    )
-    client.on_connect = on_connect
-    client.on_message = on_message
-    client.on_publish = on_publish
-    client.on_disconnect = on_disconnect
-    client.tls_set()
-    client.username_pw_set(secret['mqttUsername'], secret['mqttPassword'])
-    client.connect(secret['mqttURL'], port=secret['mqttPort'])
-    client.loop_start()
-    activeWindow = {}
+async def DetectPort(macropadData:MacropadData) -> str:
+    while True:
+        comports = data_comports()
+        ports = [
+            comport.device for comport in comports
+            if comport.description.startswith("Macropad")
+        ]
+        if len(ports) > 0:
+            if macropadData.Port != ports[0]:
+                print(f"macropad port: {ports[0]}")
+                macropadData.Port = ports[0]
+        else:
+            if macropadData.Port is not None:
+                print("Macropad not found")
+                macropadData.Port = None
+        await asyncio.sleep(1)
+
+
+async def GetActiveWindowData(
+    windowData: ActiveWindowData, macropadData:MacropadData
+):
+    while True:
+        currentWindow = GetActiveWindowName()
+        if currentWindow != windowData.WindowName:
+            print(GetActiveWindowName())
+            windowData.WindowName = currentWindow
+            macropadData.Message = json.dumps(
+                {"name": currentWindow, "platform": PLATFORM}
+            )
+        await asyncio.sleep(0.1)
+
+async def SerialReadWrite(
+        macropadData: MacropadData
+    ):
+    while True:
+        if macropadData.Port:
+            with serial.Serial(port=macropadData.Port) as s:
+                if macropadData.Message:
+                    print(f"Serial Write {macropadData.Message.encode('utf-8')}")
+                    s.reset_output_buffer()
+                    s.write(macropadData.Message.encode("utf-8"))
+                    macropadData.Message = b""
+                if (
+                    macropadData.ReadStart is not None and
+                    time.monotonic() - macropadData.ReadStart > 0.5
+                ):
+                    macropadData.Buffer = b""
+                inWaiting = s.inWaiting()
+                while s.in_waiting:
+                    macropadData.ReadStart = time.monotonic()
+                    macropadData.Buffer += s.read(s.in_waiting)
+                    inWaiting = s.inWaiting()
+                    await asyncio.sleep(0)
+                try:
+                    macropadData.Incoming = json.loads(macropadData.Buffer)
+                except ValueError:
+                    pass
+        await asyncio.sleep(0.1)
+
+async def main():
+    macropadData = MacropadData()
+    activeWindowData = ActiveWindowData()
+    tasks =  [
+        asyncio.create_task(GetActiveWindowData(activeWindowData, macropadData)),
+        asyncio.create_task(DetectPort(macropadData)),
+        asyncio.create_task(SerialReadWrite(macropadData)),
+    ]
+    await asyncio.gather(*tasks)
+
+if __name__ == "__main__":
     try:
-        while True:
-            currentWindow = getActiveWindow()
-            if activeWindow != currentWindow and currentWindow is not None:
-                activeWindow = currentWindow
-                client.publish(
-                    topic=f"macropad/focus/{secret['computerName']}",
-                    payload=json.dumps(activeWindow)
-                )
-
+        asyncio.run(main())
     except KeyboardInterrupt:
         print("")
-        print("Caught interrupt, exiting...")
+        print("Keyboard Interrupt")
