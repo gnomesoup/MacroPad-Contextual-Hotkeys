@@ -109,7 +109,7 @@ async def IdleState(
             macroPadState.colorIndex = (macroPadState.colorIndex + int(1)) % 256
         await asyncio.sleep(colorInterval)
 
-async def HandlePressedKey(macropad:MacroPad, macroPadState:MacroPadState):
+async def KeyHandler(macropad:MacroPad, macroPadState:MacroPadState):
     """Poll keys for state changes"""
     while True:
         keyEvent = macropad.keys.events.get()
@@ -142,7 +142,7 @@ async def HandlePressedKey(macropad:MacroPad, macroPadState:MacroPadState):
                 macroPadState.pressed.remove(keyEvent.key_number)
         await asyncio.sleep(0)
 
-async def HandleEncoder(macropad:MacroPad, macroPadState:MacroPadState):
+async def EncoderHandler(macropad:MacroPad, macroPadState:MacroPadState):
     """Poll encoder position for changes"""
     while True:
         macropad.encoder_switch_debounced.update()
@@ -175,24 +175,23 @@ async def SwitchModeHandler(
 ):
     while True:
         if macroPadState.currentMode == SwitchMode.SWITCH:
-            print("Switch Mode Handling")
             targetIndex = macroPadState.targetSwitchIndex
-            print(f"targetIndex = {targetIndex}")
             switchIndex = macroPadState.switchIndex
-            print(f"switchIndex = {switchIndex}")
-            appList = macroPadState.appList
             if targetIndex != switchIndex:
+                appList = macroPadState.appList
                 macroPadState.switchIndex = targetIndex
                 if appList[targetIndex] == "auto":
                     appLabel = "Auto Switch Apps"
+                    macroPadState.appAutoSwitch = True
                 else:
                     appKey = appList[targetIndex]
                     app = macroPadState.apps[appKey]
                     appLabel = f"{app['name']} ({app['platform']})"
+                    macroPadState.appAutoSwitch = False
                 macroPadState.displayGroup[1].text = appLabel
         await asyncio.sleep(0)
 
-async def ModeSwitch(
+async def ModeChangeHandler(
     macropad:MacroPad,
     macroPadState:MacroPadState,
 ):
@@ -209,17 +208,23 @@ async def ModeSwitch(
                         macroPadState.displayGroup[2].text = ">"
                     else:
                         macroPadState.displayGroup[i].text = ""
-                i = macroPadState.appList.index(
-                    macroPadState.currentApp
-                ) % len(macroPadState.apps)
-                macroPadState.targetSwitchIndex = i
+                if macroPadState.appAutoSwitch:
+                    targetIndex = 0
+                else:
+                    targetIndex = macroPadState.appList.index(
+                        macroPadState.currentApp
+                    )
+                macroPadState.targetSwitchIndex = targetIndex
+                macroPadState.appAutoSwitch = False
                 print("Switching mode activated")
             elif macroPadState.targetMode == SwitchMode.IDLE:
                 print("Idle mode activated")
                 macroPadState.displayGroup[13].text = "Sleeping..."
             elif macroPadState.targetMode == SwitchMode.APP:
-                print("App mode activated")
                 macroPadState.currentApp = None
+                macroPadState.targetSwitchIndex = None
+                macroPadState.switchIndex = None
+                print("App mode activated")
             macroPadState.currentMode = macroPadState.targetMode
             print(f"macroPadState.currentMode = {macroPadState.currentMode}")
             
@@ -329,14 +334,14 @@ async def main():
     getServerData = asyncio.create_task(
         GetServerData(serial, serverData)
     )
-    handlePressedKey = asyncio.create_task(
-        HandlePressedKey(macropad, macroPadState)
+    keyHandler = asyncio.create_task(
+        KeyHandler(macropad, macroPadState)
     )
-    handleEncoder = asyncio.create_task(
-        HandleEncoder(macropad, macroPadState)
+    encoderHandler = asyncio.create_task(
+        EncoderHandler(macropad, macroPadState)
     )
-    modeSwitch = asyncio.create_task(
-        ModeSwitch(macropad, macroPadState)
+    modeChangeHandler = asyncio.create_task(
+        ModeChangeHandler(macropad, macroPadState)
     )
     loadApp = asyncio.create_task(
         LoadApp(macropad, macroPadState)
@@ -350,9 +355,9 @@ async def main():
     await asyncio.gather(
         getServerData,
         idleState,
-        handlePressedKey,
-        handleEncoder,
-        modeSwitch,
+        keyHandler,
+        encoderHandler,
+        modeChangeHandler,
         loadApp,
         setAppAuto,
         switchModeHandler
