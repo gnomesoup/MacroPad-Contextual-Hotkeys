@@ -13,13 +13,31 @@ app = {
         (0x003B1C, '2019', [
             Keycode.CONTROL, Keycode.ALT, '9'
         ]),
-        (0x000000, '', ''),
+        (0x000080, '1Pass', [
+            Keycode.COMMAND,
+            Keycode.SPACE,
+            -Keycode.COMMAND,
+            -Keycode.SPACE,
+            0.1,
+            '1password 7',
+            Keycode.ENTER,
+            -Keycode.ENTER
+        ]),
         (0x000000, '', ''),
         # 2nd row ----------
         (0x003B1C, '2020', [
             Keycode.CONTROL, Keycode.ALT, '0'
         ]),
-        (0x000000, '', ''),
+        (0x464eb8, 'Teams', [
+            Keycode.COMMAND,
+            Keycode.SPACE,
+            -Keycode.SPACE,
+            0.1,
+            -Keycode.COMMAND,
+            'microsoft teams',
+            Keycode.ENTER,
+            -Keycode.ENTER
+        ]),
         (0x000000, '', ''),
         # 3rd row ----------
         (0x00353E, '2021', [
