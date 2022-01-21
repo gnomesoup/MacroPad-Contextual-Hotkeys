@@ -149,9 +149,10 @@ async def EncoderHandler(macropad:MacroPad, macroPadState:MacroPadState):
         encoderSwitch = macropad.encoder_switch_debounced.pressed
         if encoderSwitch:
             print("encoder pressed")
-            macroPadState.targetMode = MacropadMode.SWITCH if \
-                macroPadState.currentMode != MacropadMode.SWITCH \
-                else MacropadMode.APP
+            if macroPadState.currentMode != MacropadMode.SWITCH:
+                macroPadState.targetMode = MacropadMode.SWITCH 
+            else:
+                macroPadState.targetMode = MacropadMode.APP
         encoderDifference = macropad.encoder - macroPadState.position
         if encoderDifference != 0:
             if macroPadState.currentMode != MacropadMode.SWITCH:
@@ -166,10 +167,11 @@ async def EncoderHandler(macropad:MacroPad, macroPadState:MacroPadState):
             else:
                 i = macroPadState.switchIndex + encoderDifference
                 macroPadState.targetSwitchIndex = i % len(macroPadState.appList)
+                macroPadState.switchTime = time.monotonic()
             macroPadState.position = macropad.encoder
         await asyncio.sleep(0)
 
-async def MacropadModeHandler(
+async def SwitchModeHandler(
     macroPadState:MacroPadState,
 ):
     while True:
@@ -181,12 +183,10 @@ async def MacropadModeHandler(
                 macroPadState.switchIndex = targetIndex
                 if appList[targetIndex] == "auto":
                     appLabel = "Auto Switch Apps"
-                    macroPadState.appAutoSwitch = True
                 else:
                     appKey = appList[targetIndex]
                     app = macroPadState.apps[appKey]
                     appLabel = f"{app['name']} ({app['platform']})"
-                    macroPadState.appAutoSwitch = False
                 macroPadState.displayGroup[1].text = appLabel
         await asyncio.sleep(0)
 
@@ -195,8 +195,24 @@ async def ModeChangeHandler(
 ):
     """Change modes of the macropad"""
     while True:
+        if (
+            macroPadState.currentMode == MacropadMode.SWITCH and
+            time.monotonic() - macroPadState.switchTime > 4
+        ):
+            print("Switch Time Up")
+            macroPadState.targetMode = MacropadMode.APP
         if macroPadState.targetMode != macroPadState.currentMode:
             print("Mode Switch")
+            if macroPadState.currentMode == MacropadMode.SWITCH:
+                # Close out switch mode
+                i = macroPadState.switchIndex
+                if i != 0:
+                    macroPadState.targetApp = macroPadState.appList[i]
+                else:
+                    macroPadState.appAutoSwitch = True
+                macroPadState.targetSwitchIndex = None
+                macroPadState.switchIndex = None
+                macroPadState.switchTime = None
             if macroPadState.targetMode == MacropadMode.SWITCH:
                 macroPadState.displayGroup[13].text = "Switch Mode"
                 for i in range(12):
@@ -214,14 +230,13 @@ async def ModeChangeHandler(
                     )
                 macroPadState.targetSwitchIndex = targetIndex
                 macroPadState.appAutoSwitch = False
+                macroPadState.switchTime = time.monotonic()
                 print("Switching mode activated")
             elif macroPadState.targetMode == MacropadMode.IDLE:
-                print("Idle mode activated")
                 macroPadState.displayGroup[13].text = "Sleeping..."
+                print("Idle mode activated")
             elif macroPadState.targetMode == MacropadMode.APP:
                 macroPadState.currentApp = None
-                macroPadState.targetSwitchIndex = None
-                macroPadState.switchIndex = None
                 print("App mode activated")
             macroPadState.currentMode = macroPadState.targetMode
             print(f"macroPadState.currentMode = {macroPadState.currentMode}")
@@ -251,7 +266,6 @@ async def LoadApp(
         targetApp = macroPadState.targetApp
         apps = macroPadState.apps
         if currentApp != targetApp:
-            print("Loading new app")
             defaultAppKey = f"{targetApp.split('-')[0]}-Default"
             if targetApp not in apps:
                 displayName = f"{targetApp.split('-', 1)[1]}*"
@@ -341,7 +355,7 @@ async def main():
         ModeChangeHandler(macroPadState),
         LoadApp(macropad, macroPadState),
         SetAppAuto(macroPadState, serverData),
-        MacropadModeHandler(macroPadState),
+        SwitchModeHandler(macroPadState),
     )
 
 asyncio.run(main())

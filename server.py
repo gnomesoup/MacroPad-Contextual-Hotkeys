@@ -7,16 +7,12 @@ import time
 
 PLATFORM = sys.platform
 WINDOW_LIBRARY = None
+SERVER_VERSION = "2022-01.0"
 
 class ActiveWindowData:
     """Handle Active Window information across async calls"""
     def __init__(self) -> None:
         self.WindowName = ""
-
-# class MQTTData:
-#     """Handle MQTT information across async calls"""
-#     def __init__(self) -> None:
-#         self.data = None
 
 class MacropadData:
     """Handle MacroPad serial data across async calls"""
@@ -27,7 +23,6 @@ class MacropadData:
         self.Message = b""
         self.Incoming = ""
         self.ReadStart = None
-
 
 if PLATFORM in ['linux', 'linux2']:
     print("Loading setting for linux")
@@ -100,6 +95,7 @@ else:
     exit()
 
 async def DetectPort(macropadData:MacropadData) -> str:
+    """Check to see if a Macropad is connected"""
     while True:
         comports = data_comports()
         ports = [
@@ -120,19 +116,25 @@ async def DetectPort(macropadData:MacropadData) -> str:
 async def GetActiveWindowData(
     windowData: ActiveWindowData, macropadData:MacropadData
 ):
+    """Poll the computer for it's active window"""
     while True:
         currentWindow = GetActiveWindowName()
         if currentWindow != windowData.WindowName:
-            print(GetActiveWindowName())
+            print(currentWindow)
             windowData.WindowName = currentWindow
             macropadData.Message = json.dumps(
-                {"name": currentWindow, "platform": PLATFORM}
+                {
+                    "name": currentWindow,
+                    "platform": PLATFORM,
+                    "version": SERVER_VERSION
+                }
             )
         await asyncio.sleep(0.1)
 
 async def SerialReadWrite(
         macropadData: MacropadData
     ):
+    """Get/Send Messages to the Macropad"""
     while True:
         if macropadData.Port:
             with serial.Serial(port=macropadData.Port) as s:
@@ -146,27 +148,26 @@ async def SerialReadWrite(
                     time.monotonic() - macropadData.ReadStart > 0.5
                 ):
                     macropadData.Buffer = b""
-                inWaiting = s.inWaiting()
                 while s.in_waiting:
+                    print(s.in_waiting)
                     macropadData.ReadStart = time.monotonic()
                     macropadData.Buffer += s.read(s.in_waiting)
-                    inWaiting = s.inWaiting()
                     await asyncio.sleep(0)
                 try:
                     macropadData.Incoming = json.loads(macropadData.Buffer)
+                    print(macropadData.Incoming)
                 except ValueError:
                     pass
-        await asyncio.sleep(0.1)
+        await asyncio.sleep(0.3)
 
 async def main():
     macropadData = MacropadData()
     activeWindowData = ActiveWindowData()
-    tasks =  [
-        asyncio.create_task(GetActiveWindowData(activeWindowData, macropadData)),
-        asyncio.create_task(DetectPort(macropadData)),
-        asyncio.create_task(SerialReadWrite(macropadData)),
-    ]
-    await asyncio.gather(*tasks)
+    await asyncio.gather(
+        GetActiveWindowData(activeWindowData, macropadData),
+        DetectPort(macropadData),
+        SerialReadWrite(macropadData),
+    )
 
 if __name__ == "__main__":
     try:
