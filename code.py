@@ -335,39 +335,15 @@ async def main():
         )
     )
     macropad.display.show(macroPadState.displayGroup)
-    idleState = asyncio.create_task(
-        IdleState(macropad, macroPadState)
-    )
-    getServerData = asyncio.create_task(
-        GetServerData(serial, serverData)
-    )
-    keyHandler = asyncio.create_task(
-        KeyHandler(macropad, macroPadState)
-    )
-    encoderHandler = asyncio.create_task(
-        EncoderHandler(macropad, macroPadState)
-    )
-    modeChangeHandler = asyncio.create_task(
-        ModeChangeHandler(macropad, macroPadState)
-    )
-    loadApp = asyncio.create_task(
-        LoadApp(macropad, macroPadState)
-    )
-    setAppAuto = asyncio.create_task(
-        SetAppAuto(macroPadState, serverData)
-    )
-    switchModeHandler = asyncio.create_task(
-        SwitchModeHandler(macropad, macroPadState)
-    )
     await asyncio.gather(
-        getServerData,
-        idleState,
-        keyHandler,
-        encoderHandler,
-        modeChangeHandler,
-        loadApp,
-        setAppAuto,
-        switchModeHandler
+        IdleState(macropad, macroPadState),
+        GetServerData(serial, serverData),
+        KeyHandler(macropad, macroPadState),
+        EncoderHandler(macropad, macroPadState),
+        ModeChangeHandler(macropad, macroPadState),
+        LoadApp(macropad, macroPadState),
+        SetAppAuto(macroPadState, serverData),
+        SwitchModeHandler(macropad, macroPadState),
     )
 
 asyncio.run(main())
