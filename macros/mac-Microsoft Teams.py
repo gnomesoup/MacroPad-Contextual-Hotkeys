@@ -4,8 +4,8 @@ from adafruit_hid.keycode import Keycode  # REQUIRED if using Keycode.* values
 
 app = {
     # REQUIRED dict, must be named "app"
-    "name": "Firefox",  # Application name
-    "appName": "Firefox",
+    "name": "MS Teams",  # Application name
+    "appName": "Microsoft Teams",
     "platform": "mac",
     "macros": [
         # List of button macros...
@@ -20,16 +20,22 @@ app = {
         None,
         None,
         # 3rd row ----------
-        (0xa000a0, "Priv", [
-            Keycode.COMMAND,
-            Keycode.SHIFT,
-            Keycode.P
-        ]),
+        None,
         None,
         None,
         # 4th row ----------
-        None,
-        None,
+        (0xFF0000, "Mute", [
+                Keycode.COMMAND,
+                Keycode.SHIFT,
+                Keycode.M
+            ]
+        ),
+        (0xFFFF00, "Video", [
+                Keycode.COMMAND,
+                Keycode.SHIFT,
+                Keycode.O
+            ]
+        ),
         None,
     ],
 }

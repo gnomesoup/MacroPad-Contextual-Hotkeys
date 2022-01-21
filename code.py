@@ -254,20 +254,27 @@ async def LoadApp(
         apps = macroPadState.apps
         if currentApp != targetApp:
             print("Loading new app")
+            defaultAppKey = f"{targetApp.split('-')[0]}-Default"
             if targetApp not in apps:
-                currentApp = f"{targetApp.split('-')[0]}-Default"
+                displayName = f"{targetApp.split('-', 1)[1]}*"
+                currentApp = defaultAppKey
                 macroPadState.targetApp = currentApp
             else:
                 currentApp = targetApp
+                displayName = None
             macroPadState.currentApp = currentApp
             appData = apps[currentApp]
+            defaultAppData = apps[defaultAppKey]
             print(
                 f"Load App: {appData['name']}"
             )
-            macroPadState.displayGroup[13].text = appData['name']
+            macroPadState.displayGroup[13].text = appData['name'] if \
+                displayName is None else displayName
             for i, macro in enumerate(appData['macros']):
                 if i > 11:
                     continue
+                if macro is None:
+                    macro = defaultAppData['macros'][i]
                 macropad.pixels[i] = macro[0]
                 macroPadState.displayGroup[i].text = macro[1]
         await asyncio.sleep(0)

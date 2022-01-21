@@ -4,9 +4,9 @@ from adafruit_hid.keycode import Keycode  # REQUIRED if using Keycode.* values
 
 app = {
     # REQUIRED dict, must be named "app"
-    "name": "Firefox",  # Application name
-    "appName": "Firefox",
-    "platform": "mac",
+    "name": "VSCode",  # Application name
+    "appName": "Code", # Name as reported by OS
+    "platform": "mac", # OS name. choose from ["mac", "linux", "windows"]
     "macros": [
         # List of button macros...
         # Macros set to "None" will be pulled from the default macro list
@@ -20,16 +20,22 @@ app = {
         None,
         None,
         # 3rd row ----------
-        (0xa000a0, "Priv", [
-            Keycode.COMMAND,
-            Keycode.SHIFT,
-            Keycode.P
-        ]),
+        None,
         None,
         None,
         # 4th row ----------
         None,
-        None,
+        (0x1E87EC, "Tasks", [
+            Keycode.CONTROL,
+            Keycode.SHIFT,
+            Keycode.T,
+            -Keycode.CONTROL,
+            -Keycode.SHIFT,
+            -Keycode.T,
+            0.1,
+            Keycode.ENTER,
+            -Keycode.ENTER,
+        ]),
         None,
     ],
 }

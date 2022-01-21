@@ -4,8 +4,8 @@ from adafruit_hid.keycode import Keycode  # REQUIRED if using Keycode.* values
 
 app = {
     # REQUIRED dict, must be named 'app'
-    'name': 'Mac',  # Application name
-    'appName': 'Default',
+    'name': 'StarLeaf',  # Application name
+    'appName': 'StarLeaf',
     'platform': 'mac',
     'macros': [           # List of button macros...
         # COLOR    LABEL    KEY SEQUENCE
@@ -55,21 +55,18 @@ app = {
         (0x000000, '', ''),
         (0x000000, '', ''),
         # 4th row ----------
-        (0x880000, 'Mute', [
-                Keycode.COMMAND,
-                Keycode.SPACE,
-                -Keycode.SPACE,
-                0.1,
-                -Keycode.COMMAND,
-                'microsoft teams',
-                Keycode.ENTER,
-                -Keycode.ENTER,
+        (0xFF0000, 'Mute', [
                 Keycode.COMMAND,
                 Keycode.SHIFT,
-                Keycode.M
+                Keycode.A
             ]
         ),
-        (0x000000, '', ''),
+        (0xFFFF00, 'Video', [
+                Keycode.COMMAND,
+                Keycode.SHIFT,
+                Keycode.V
+            ]
+        ),
         (0x000000, '', ''),
     ],
 }
