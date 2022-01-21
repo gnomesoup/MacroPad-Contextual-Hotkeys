@@ -1,7 +1,6 @@
 from adafruit_macropad import MacroPad
 from adafruit_display_text import label
 from adafruit_display_shapes.rect import Rect
-from adafruit_hid.consumer_control_code import ConsumerControlCode
 import asyncio
 import displayio
 import json
@@ -23,7 +22,7 @@ class ServerData:
         self.readTime = None
         self.updated = False
 
-class SwitchMode:
+class MacropadMode:
     """Defines modes of the macropad"""
     def __init__(self) -> None:
         """Enum like class to define modes of the macropad"""
@@ -49,8 +48,8 @@ class MacroPadState:
         self.colorInterval = 0.5
         self.position = 0
         self.labelText = "App"
-        self.currentMode = SwitchMode.APP
-        self.targetMode = SwitchMode.APP
+        self.currentMode = MacropadMode.APP
+        self.targetMode = MacropadMode.APP
         self.appAutoSwitch = True
         self.apps = {
             "idle": {
@@ -65,6 +64,7 @@ class MacroPadState:
         self.appList = ["auto"]
         self.targetSwitchIndex = None
         self.switchIndex = None
+        self.switchTime = None
 
 async def GetServerData(serial:usb_cdc.data, data: ServerData):
     """Get data from server and store in server data class"""
@@ -101,7 +101,7 @@ async def IdleState(
     """Handle key colors in idle states"""
     while True:
         colorInterval = 0.5
-        if macroPadState.currentMode in (SwitchMode.IDLE, SwitchMode.SWITCH):
+        if macroPadState.currentMode in (MacropadMode.IDLE, MacropadMode.SWITCH):
             for pin in range(12):
                 if pin not in macroPadState.pressed:
                     macropad.pixels[pin] = colorwheel(macroPadState.colorIndex)
@@ -149,12 +149,12 @@ async def EncoderHandler(macropad:MacroPad, macroPadState:MacroPadState):
         encoderSwitch = macropad.encoder_switch_debounced.pressed
         if encoderSwitch:
             print("encoder pressed")
-            macroPadState.targetMode = SwitchMode.SWITCH if \
-                macroPadState.currentMode != SwitchMode.SWITCH \
-                else SwitchMode.APP
+            macroPadState.targetMode = MacropadMode.SWITCH if \
+                macroPadState.currentMode != MacropadMode.SWITCH \
+                else MacropadMode.APP
         encoderDifference = macropad.encoder - macroPadState.position
         if encoderDifference != 0:
-            if macroPadState.currentMode != SwitchMode.SWITCH:
+            if macroPadState.currentMode != MacropadMode.SWITCH:
                 if encoderDifference > 0:
                     macropad.consumer_control.send(
                         macropad.ConsumerControlCode.VOLUME_INCREMENT
@@ -169,12 +169,11 @@ async def EncoderHandler(macropad:MacroPad, macroPadState:MacroPadState):
             macroPadState.position = macropad.encoder
         await asyncio.sleep(0)
 
-async def SwitchModeHandler(
-    macropad:MacroPad,
+async def MacropadModeHandler(
     macroPadState:MacroPadState,
 ):
     while True:
-        if macroPadState.currentMode == SwitchMode.SWITCH:
+        if macroPadState.currentMode == MacropadMode.SWITCH:
             targetIndex = macroPadState.targetSwitchIndex
             switchIndex = macroPadState.switchIndex
             if targetIndex != switchIndex:
@@ -192,14 +191,13 @@ async def SwitchModeHandler(
         await asyncio.sleep(0)
 
 async def ModeChangeHandler(
-    macropad:MacroPad,
     macroPadState:MacroPadState,
 ):
     """Change modes of the macropad"""
     while True:
         if macroPadState.targetMode != macroPadState.currentMode:
             print("Mode Switch")
-            if macroPadState.targetMode == SwitchMode.SWITCH:
+            if macroPadState.targetMode == MacropadMode.SWITCH:
                 macroPadState.displayGroup[13].text = "Switch Mode"
                 for i in range(12):
                     if i == 0:
@@ -217,10 +215,10 @@ async def ModeChangeHandler(
                 macroPadState.targetSwitchIndex = targetIndex
                 macroPadState.appAutoSwitch = False
                 print("Switching mode activated")
-            elif macroPadState.targetMode == SwitchMode.IDLE:
+            elif macroPadState.targetMode == MacropadMode.IDLE:
                 print("Idle mode activated")
                 macroPadState.displayGroup[13].text = "Sleeping..."
-            elif macroPadState.targetMode == SwitchMode.APP:
+            elif macroPadState.targetMode == MacropadMode.APP:
                 macroPadState.currentApp = None
                 macroPadState.targetSwitchIndex = None
                 macroPadState.switchIndex = None
@@ -340,10 +338,10 @@ async def main():
         GetServerData(serial, serverData),
         KeyHandler(macropad, macroPadState),
         EncoderHandler(macropad, macroPadState),
-        ModeChangeHandler(macropad, macroPadState),
+        ModeChangeHandler(macroPadState),
         LoadApp(macropad, macroPadState),
         SetAppAuto(macroPadState, serverData),
-        SwitchModeHandler(macropad, macroPadState),
+        MacropadModeHandler(macroPadState),
     )
 
 asyncio.run(main())
