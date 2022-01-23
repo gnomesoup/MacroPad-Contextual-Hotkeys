@@ -11,6 +11,8 @@ import time
 import usb_cdc
 
 MACRO_FOLDER = "/macros"
+CLIENT_VERSION = "2022-01.0"
+MESSAGING_VERSION = "0"
 
 class ServerData:
     """Class to store incoming serial data from the host device"""
@@ -95,6 +97,17 @@ def ReadSerial(serial:usb_cdc.data, data: ServerData) -> str:
         available = serial.in_waiting
     return text
 
+def RequestUpdateFromServer(serial:usb_cdc.data):
+    message = json.dumps(
+        {
+            "updateRequested": True,
+            "version": MESSAGING_VERSION,
+        }
+    )
+    print(f"Requesting update: {message}")
+    serial.write(bytes(f"{message}\n", "utf-8"))
+    return
+
 async def IdleState(
     macropad:MacroPad, macroPadState:MacroPadState
 ):
@@ -109,36 +122,50 @@ async def IdleState(
             macroPadState.colorIndex = (macroPadState.colorIndex + int(1)) % 256
         await asyncio.sleep(colorInterval)
 
-async def KeyHandler(macropad:MacroPad, macroPadState:MacroPadState):
+async def KeyHandler(macropad:MacroPad, macroPadState:MacroPadState, serial:usb_cdc.data):
     """Poll keys for state changes"""
     while True:
         keyEvent = macropad.keys.events.get()
         if keyEvent:
             appData = macroPadState.apps[macroPadState.currentApp]
-            sequence = appData['macros'][keyEvent.key_number][2]
+            if appData is None:
+                print("No app data found")
+                sequence = None
+            else:
+                try:
+                    sequence = appData['macros'][keyEvent.key_number][2]
+                except TypeError:
+                    sequence = None
             print(f"keyEvent: {keyEvent}")
             if keyEvent.pressed:
+                if keyEvent.key_number == 11:
+                    RequestUpdateFromServer(serial)
                 macropad.pixels[keyEvent.key_number] = 0xAAAAAA
                 macroPadState.pressed.add(keyEvent.key_number)
-                for item in sequence:
-                    if isinstance(item, int):
-                        if item >= 0:
-                            macropad.keyboard.press(item)
+                if sequence:
+                    for item in sequence:
+                        if isinstance(item, int):
+                            if item >= 0:
+                                macropad.keyboard.press(item)
+                            else:
+                                macropad.keyboard.release(-item)
+                        elif isinstance(item, float):
+                            time.sleep(item)
                         else:
-                            macropad.keyboard.release(-item)
-                    elif isinstance(item, float):
-                        time.sleep(item)
-                    else:
-                        macropad.keyboard_layout.write(item)
+                            macropad.keyboard_layout.write(item)
             else:
-                for item in sequence:
-                    if isinstance(item, int):
-                        if item >= 0:
-                            macropad.keyboard.release(item)
+                if sequence:
+                    for item in sequence:
+                        if isinstance(item, int):
+                            if item >= 0:
+                                macropad.keyboard.release(item)
             if keyEvent.released:
-                macropad.pixels[keyEvent.key_number] = appData['macros'][
-                    keyEvent.key_number
-                ][0]
+                if sequence is None:
+                    macropad.pixels[keyEvent.key_number] = 0
+                else: 
+                    macropad.pixels[keyEvent.key_number] = appData['macros'][
+                        keyEvent.key_number
+                    ][0]
                 macroPadState.pressed.remove(keyEvent.key_number)
         await asyncio.sleep(0)
 
@@ -347,10 +374,11 @@ async def main():
         )
     )
     macropad.display.show(macroPadState.displayGroup)
+    RequestUpdateFromServer(serial)
     await asyncio.gather(
         IdleState(macropad, macroPadState),
         GetServerData(serial, serverData),
-        KeyHandler(macropad, macroPadState),
+        KeyHandler(macropad, macroPadState, serial),
         EncoderHandler(macropad, macroPadState),
         ModeChangeHandler(macroPadState),
         LoadApp(macropad, macroPadState),
