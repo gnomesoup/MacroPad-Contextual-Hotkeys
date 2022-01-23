@@ -10,7 +10,6 @@ app = {
     'macros': [           # List of button macros...
         # COLOR    LABEL    KEY SEQUENCE
         # 1st row ----------
-        (0x104000, 'RayC', [Keycode.COMMAND, Keycode.SPACE]),
         (0x000080, '1Pass', [
             Keycode.COMMAND,
             Keycode.SPACE,
@@ -21,11 +20,9 @@ app = {
             Keycode.ENTER,
             -Keycode.ENTER
         ]),
+        (0x104000, 'RayC', [Keycode.COMMAND, Keycode.SPACE]),
         (0x000000, '', ''),
         # 2nd row ----------
-        (0x404000, 'Char', [
-            Keycode.CONTROL, Keycode.COMMAND, Keycode.SPACE
-        ]),
         (0x464eb8, 'Teams', [
             Keycode.COMMAND,
             Keycode.SPACE,
@@ -35,6 +32,9 @@ app = {
             'microsoft teams',
             Keycode.ENTER,
             -Keycode.ENTER
+        ]),
+        (0x404000, 'Char', [
+            Keycode.CONTROL, Keycode.COMMAND, Keycode.SPACE
         ]),
         (0x000000, '', ''),
         # 3rd row ----------

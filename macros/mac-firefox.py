@@ -12,7 +12,11 @@ app = {
         # Macros set to "None" will be pulled from the default macro list
         # COLOR    LABEL    KEY SEQUENCE
         # 1st row ----------
-        None,
+        (0x000080, '1Pass', [
+               Keycode.COMMAND,
+               Keycode.PERIOD 
+            ]
+        ),
         None,
         None,
         # 2nd row ----------
