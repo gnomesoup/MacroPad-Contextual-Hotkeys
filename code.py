@@ -97,16 +97,22 @@ def ReadSerial(serial:usb_cdc.data, data: ServerData) -> str:
         available = serial.in_waiting
     return text
 
-def RequestUpdateFromServer(serial:usb_cdc.data):
-    message = json.dumps(
-        {
-            "updateRequested": True,
-            "version": MESSAGING_VERSION,
-        }
-    )
-    print(f"Requesting update: {message}")
-    serial.write(bytes(f"{message}\n", "utf-8"))
-    return
+async def RequestUpdateFromServer(
+    macropadState: MacroPadState, serial:usb_cdc.data
+):
+    autoSwitch = None
+    while True:
+        if macropadState.appAutoSwitch != autoSwitch:
+            autoSwitch = macropadState.appAutoSwitch
+            message = json.dumps(
+                {
+                    "updateRequested": True,
+                    "version": MESSAGING_VERSION,
+                }
+            )
+            print(f"Requesting update: {message}")
+            serial.write(bytes(f"{message}\n", "utf-8"))
+        await asyncio.sleep(0.2)
 
 async def IdleState(
     macropad:MacroPad, macroPadState:MacroPadState
@@ -218,7 +224,7 @@ async def SwitchModeHandler(
         await asyncio.sleep(0)
 
 async def ModeChangeHandler(
-    macroPadState:MacroPadState,
+    macroPadState:MacroPadState
 ):
     """Change modes of the macropad"""
     while True:
@@ -374,8 +380,8 @@ async def main():
         )
     )
     macropad.display.show(macroPadState.displayGroup)
-    RequestUpdateFromServer(serial)
     await asyncio.gather(
+        RequestUpdateFromServer(macroPadState, serial),
         IdleState(macropad, macroPadState),
         GetServerData(serial, serverData),
         KeyHandler(macropad, macroPadState, serial),

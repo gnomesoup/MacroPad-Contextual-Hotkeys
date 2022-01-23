@@ -1,10 +1,11 @@
-from curses import baudrate
 from adafruit_board_toolkit.circuitpython_serial import data_comports
 import asyncio
 import json
-import serial_asyncio
+from serial_asyncio import open_serial_connection
+from serial_asyncio import serial
 import sys
-import time
+# import time
+
 
 PLATFORM = sys.platform
 WINDOW_LIBRARY = None
@@ -25,18 +26,9 @@ class MacropadData:
         self.Message = b""
         self.Incoming = ""
         self.ReadStart = None
+        self.reader = None
+        self.writer = None
 
-class SerialProtocol(asyncio.Protocol):
-    def connection_made(self, transport: serial_asyncio.SerialTransport) -> None:
-        self.transport = transport
-        print("port opened", transport)
-        transport.serial.rts = False
-        transport.write(
-            bytes(
-                json.dumps({"name": "Test", "platform": "mac"})
-                , "utf-8"
-            )
-        )
     def data_received(self, data: bytes) -> None:
         print("data received", repr(data))
         try:
@@ -136,6 +128,20 @@ async def DetectPort(macropadData:MacropadData) -> str:
                 macropadData.Port = None
         await asyncio.sleep(1)
 
+async def OpenSerialConnection(data:MacropadData):
+    port = ""
+    while True:
+        if data.Port and data.Port != port:
+            data.reader, data.writer = await open_serial_connection(
+                url=data.Port,
+                baudrate=9600
+            )
+            port = data.Port
+        elif not data.Port and data.Port != port:
+            data.reader = None
+            data.writer = None
+            port = data.Port
+        await asyncio.sleep(2)
 
 async def GetActiveWindowData(
     windowData: ActiveWindowData, macropadData:MacropadData
@@ -150,34 +156,35 @@ async def GetActiveWindowData(
                 {
                     "name": currentWindow,
                     "platform": PLATFORM,
-                    "version": SERVER_VERSION
+                    "version": MESSAGE_VERSION
                 }
             )
         await asyncio.sleep(0.1)
 
 async def SerialWrite(
     macropadData: MacropadData,
-    writer: asyncio.StreamWriter
 ):
     """Get/Send Messages to the Macropad"""
     while True:
-        if macropadData.Port:
+        if macropadData.writer:
             if macropadData.Message:
                 print(f"Serial Write {macropadData.Message.encode('utf-8')}")
-                writer.write(macropadData.Message.encode("utf-8"))
+                macropadData.writer.write(macropadData.Message.encode("utf-8"))
                 macropadData.Message = b""
         await asyncio.sleep(0.1)
 
 async def SerialRead(
     macropadData: MacropadData,
-    reader: asyncio.StreamReader
 ):
     while True:
-        data = await reader.readline()
-        try:
-            macropadData.Incoming = json.loads(data)
-        except ValueError:
-            pass
+        if macropadData.reader:
+            try:
+                data = await macropadData.reader.readline()
+                macropadData.Incoming = json.loads(data)
+            except (ValueError, serial.SerialException):
+                macropadData.reader = None
+        else:
+            await asyncio.sleep(0)
 
 async def IncomingHandler(
     macropadData: MacropadData, windowData: ActiveWindowData
@@ -196,16 +203,13 @@ async def IncomingHandler(
 async def main():
     macropadData = MacropadData()
     activeWindowData = ActiveWindowData()
-    reader, writer = await serial_asyncio.open_serial_connection(
-        url="/dev/cu.usbmodem103",
-        baudrate=9600
-    )
     await asyncio.gather(
         GetActiveWindowData(activeWindowData, macropadData),
         DetectPort(macropadData),
         IncomingHandler(macropadData, activeWindowData),
-        SerialWrite(macropadData, writer),
-        SerialRead(macropadData, reader),
+        OpenSerialConnection(macropadData),
+        SerialWrite(macropadData),
+        SerialRead(macropadData),
     )
 
 if __name__ == "__main__":
