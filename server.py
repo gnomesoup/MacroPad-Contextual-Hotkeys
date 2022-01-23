@@ -1,13 +1,15 @@
+from curses import baudrate
 from adafruit_board_toolkit.circuitpython_serial import data_comports
 import asyncio
 import json
-import serial
+import serial_asyncio
 import sys
 import time
 
 PLATFORM = sys.platform
 WINDOW_LIBRARY = None
 SERVER_VERSION = "2022-01.0"
+MESSAGE_VERSION = "1"
 
 class ActiveWindowData:
     """Handle Active Window information across async calls"""
@@ -23,6 +25,28 @@ class MacropadData:
         self.Message = b""
         self.Incoming = ""
         self.ReadStart = None
+
+class SerialProtocol(asyncio.Protocol):
+    def connection_made(self, transport: serial_asyncio.SerialTransport) -> None:
+        self.transport = transport
+        print("port opened", transport)
+        transport.serial.rts = False
+        transport.write(
+            bytes(
+                json.dumps({"name": "Test", "platform": "mac"})
+                , "utf-8"
+            )
+        )
+    def data_received(self, data: bytes) -> None:
+        print("data received", repr(data))
+        try:
+            jsonData = json.loads(data)
+            print(jsonData)
+        except:
+            pass
+    def connection_lost(self, exc: Exception) -> None:
+        print("connection lost")
+        self.transport.loop.stop()
 
 if PLATFORM in ['linux', 'linux2']:
     print("Loading setting for linux")
@@ -131,42 +155,57 @@ async def GetActiveWindowData(
             )
         await asyncio.sleep(0.1)
 
-async def SerialReadWrite(
-        macropadData: MacropadData
-    ):
+async def SerialWrite(
+    macropadData: MacropadData,
+    writer: asyncio.StreamWriter
+):
     """Get/Send Messages to the Macropad"""
     while True:
         if macropadData.Port:
-            with serial.Serial(port=macropadData.Port) as s:
-                if macropadData.Message:
-                    print(f"Serial Write {macropadData.Message.encode('utf-8')}")
-                    s.reset_output_buffer()
-                    s.write(macropadData.Message.encode("utf-8"))
-                    macropadData.Message = b""
-                if (
-                    macropadData.ReadStart is not None and
-                    time.monotonic() - macropadData.ReadStart > 0.5
-                ):
-                    macropadData.Buffer = b""
-                while s.in_waiting:
-                    print(s.in_waiting)
-                    macropadData.ReadStart = time.monotonic()
-                    macropadData.Buffer += s.read(s.in_waiting)
-                    await asyncio.sleep(0)
-                try:
-                    macropadData.Incoming = json.loads(macropadData.Buffer)
-                    print(macropadData.Incoming)
-                except ValueError:
-                    pass
+            if macropadData.Message:
+                print(f"Serial Write {macropadData.Message.encode('utf-8')}")
+                writer.write(macropadData.Message.encode("utf-8"))
+                macropadData.Message = b""
+        await asyncio.sleep(0.1)
+
+async def SerialRead(
+    macropadData: MacropadData,
+    reader: asyncio.StreamReader
+):
+    while True:
+        data = await reader.readline()
+        try:
+            macropadData.Incoming = json.loads(data)
+        except ValueError:
+            pass
+
+async def IncomingHandler(
+    macropadData: MacropadData, windowData: ActiveWindowData
+):
+    while True:
+        if macropadData.Incoming:
+            data = macropadData.Incoming
+            try:
+                if data['updateRequested']:
+                    windowData.WindowName = ""
+            except ValueError:
+                pass
+            macropadData.Incoming = ""
         await asyncio.sleep(0.3)
 
 async def main():
     macropadData = MacropadData()
     activeWindowData = ActiveWindowData()
+    reader, writer = await serial_asyncio.open_serial_connection(
+        url="/dev/cu.usbmodem103",
+        baudrate=9600
+    )
     await asyncio.gather(
         GetActiveWindowData(activeWindowData, macropadData),
         DetectPort(macropadData),
-        SerialReadWrite(macropadData),
+        IncomingHandler(macropadData, activeWindowData),
+        SerialWrite(macropadData, writer),
+        SerialRead(macropadData, reader),
     )
 
 if __name__ == "__main__":
