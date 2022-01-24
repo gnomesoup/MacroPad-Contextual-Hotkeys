@@ -11,6 +11,7 @@ import time
 import usb_cdc
 
 MACRO_FOLDER = "/macros"
+DEFAULT_APP = "mac-Default"
 CLIENT_VERSION = "2022-01.0"
 MESSAGING_VERSION = "0"
 
@@ -31,7 +32,7 @@ class MacropadMode:
 
     SWITCH = 1
     """Mode to manually select between available apps"""
-    APP = 2
+    HOTKEY = 2
     """Standard mode for hotkeys"""
     IDLE = 3
     """Mode for idle state. Computer is asleep or screensave is on"""
@@ -50,8 +51,8 @@ class MacroPadState:
         self.colorInterval = 0.5
         self.position = 0
         self.labelText = "App"
-        self.currentMode = MacropadMode.APP
-        self.targetMode = MacropadMode.APP
+        self.currentMode = MacropadMode.HOTKEY
+        self.targetMode = MacropadMode.HOTKEY
         self.appAutoSwitch = True
         self.apps = {
             "idle": {
@@ -61,7 +62,8 @@ class MacroPadState:
                 "macros": [(0x000000, "", "")] * 12
             }
         }
-        self.targetApp = "mac-Default"
+        self.defaultApp = DEFAULT_APP
+        self.targetApp = self.defaultApp
         self.currentApp = None
         self.appList = ["auto"]
         self.targetSwitchIndex = None
@@ -119,61 +121,80 @@ async def IdleState(
 ):
     """Handle key colors in idle states"""
     while True:
-        colorInterval = 0.5
+        colorInterval = 0
         if macroPadState.currentMode in (MacropadMode.IDLE, MacropadMode.SWITCH):
             for pin in range(12):
                 if pin not in macroPadState.pressed:
-                    macropad.pixels[pin] = colorwheel(macroPadState.colorIndex)
-                macroPadState.values[pin] = colorwheel(macroPadState.colorIndex)
+                    cIndex = macroPadState.colorIndex
+                    oPin = pin - 3
+                    cIndex = (cIndex - ((pin // 4 + oPin % 3) * 6)) % 256
+                    macropad.pixels[pin] = colorwheel(cIndex)
+                macroPadState.values[pin] = colorwheel(cIndex)
             macroPadState.colorIndex = (macroPadState.colorIndex + int(1)) % 256
         await asyncio.sleep(colorInterval)
 
-async def KeyHandler(macropad:MacroPad, macroPadState:MacroPadState, serial:usb_cdc.data):
+async def KeyHandler(
+    macropad:MacroPad,
+    macroPadState:MacroPadState,
+):
     """Poll keys for state changes"""
     while True:
         keyEvent = macropad.keys.events.get()
         if keyEvent:
-            appData = macroPadState.apps[macroPadState.currentApp]
-            if appData is None:
-                print("No app data found")
-                sequence = None
-            else:
-                try:
-                    sequence = appData['macros'][keyEvent.key_number][2]
-                except TypeError:
-                    sequence = None
+            keyNumber = keyEvent.key_number
             print(f"keyEvent: {keyEvent}")
+            macro = GetAppMacro(keyNumber, macroPadState)
             if keyEvent.pressed:
-                if keyEvent.key_number == 11:
-                    RequestUpdateFromServer(serial)
-                macropad.pixels[keyEvent.key_number] = 0xAAAAAA
-                macroPadState.pressed.add(keyEvent.key_number)
-                if sequence:
-                    for item in sequence:
-                        if isinstance(item, int):
-                            if item >= 0:
-                                macropad.keyboard.press(item)
-                            else:
-                                macropad.keyboard.release(-item)
-                        elif isinstance(item, float):
-                            time.sleep(item)
-                        else:
-                            macropad.keyboard_layout.write(item)
-            else:
-                if sequence:
-                    for item in sequence:
-                        if isinstance(item, int):
-                            if item >= 0:
-                                macropad.keyboard.release(item)
+                macropad.pixels[keyNumber] = 0xAAAAAA
+                macroPadState.pressed.add(keyNumber)
+                if macroPadState.currentMode == MacropadMode.HOTKEY:
+                    KeyPressedAction(macro, macropad)
             if keyEvent.released:
-                if sequence is None:
-                    macropad.pixels[keyEvent.key_number] = 0
-                else: 
-                    macropad.pixels[keyEvent.key_number] = appData['macros'][
-                        keyEvent.key_number
-                    ][0]
-                macroPadState.pressed.remove(keyEvent.key_number)
+                macropad.pixels[keyNumber] = macroPadState.values[keyNumber]
+                if macroPadState.currentMode == MacropadMode.HOTKEY:
+                    KeyReleaseAction(macro, macropad)
+                macroPadState.pressed.remove(keyNumber)
         await asyncio.sleep(0)
+
+def KeyPressedAction(
+    macro: tuple, macropad: MacroPad
+):
+    print(macro)
+    sequence = macro[2]
+    if sequence:
+        for item in sequence:
+            if isinstance(item, int):
+                if item >= 0:
+                    macropad.keyboard.press(item)
+                else:
+                    macropad.keyboard.release(-item)
+            elif isinstance(item, float):
+                time.sleep(item)
+            else:
+                macropad.keyboard_layout.write(item)
+    return
+
+def KeyReleaseAction(
+    macro: tuple, macropad: MacroPad
+):
+    sequence = macro[2]
+    if sequence:
+        for item in sequence:
+            if isinstance(item, int):
+                if item >= 0:
+                    macropad.keyboard.release(item)
+    return
+
+def GetAppMacro(keyNumber: int, mpState: MacroPadState):
+    appData = mpState.apps[mpState.currentApp]
+    if appData is None:
+        print("No app data found")
+        return None
+    else:
+        macro = appData['macros'][keyNumber]
+        if macro is None:
+            macro = mpState.apps[mpState.defaultApp]['macros'][keyNumber]
+    return macro
 
 async def EncoderHandler(macropad:MacroPad, macroPadState:MacroPadState):
     """Poll encoder position for changes"""
@@ -185,7 +206,7 @@ async def EncoderHandler(macropad:MacroPad, macroPadState:MacroPadState):
             if macroPadState.currentMode != MacropadMode.SWITCH:
                 macroPadState.targetMode = MacropadMode.SWITCH 
             else:
-                macroPadState.targetMode = MacropadMode.APP
+                macroPadState.targetMode = MacropadMode.HOTKEY
         encoderDifference = macropad.encoder - macroPadState.position
         if encoderDifference != 0:
             if macroPadState.currentMode != MacropadMode.SWITCH:
@@ -230,10 +251,10 @@ async def ModeChangeHandler(
     while True:
         if (
             macroPadState.currentMode == MacropadMode.SWITCH and
-            time.monotonic() - macroPadState.switchTime > 4
+            time.monotonic() - macroPadState.switchTime > 60
         ):
             print("Switch Time Up")
-            macroPadState.targetMode = MacropadMode.APP
+            macroPadState.targetMode = MacropadMode.HOTKEY
         if macroPadState.targetMode != macroPadState.currentMode:
             print("Mode Switch")
             if macroPadState.currentMode == MacropadMode.SWITCH:
@@ -268,7 +289,7 @@ async def ModeChangeHandler(
             elif macroPadState.targetMode == MacropadMode.IDLE:
                 macroPadState.displayGroup[13].text = "Sleeping..."
                 print("Idle mode activated")
-            elif macroPadState.targetMode == MacropadMode.APP:
+            elif macroPadState.targetMode == MacropadMode.HOTKEY:
                 macroPadState.currentApp = None
                 print("App mode activated")
             macroPadState.currentMode = macroPadState.targetMode
@@ -299,7 +320,7 @@ async def LoadApp(
         targetApp = macroPadState.targetApp
         apps = macroPadState.apps
         if currentApp != targetApp:
-            defaultAppKey = f"{targetApp.split('-')[0]}-Default"
+            defaultAppKey = macroPadState.defaultApp
             if targetApp not in apps:
                 displayName = f"{targetApp.split('-', 1)[1]}*"
                 currentApp = defaultAppKey
@@ -321,6 +342,7 @@ async def LoadApp(
                 if macro is None:
                     macro = defaultAppData['macros'][i]
                 macropad.pixels[i] = macro[0]
+                macroPadState.values[i] = macro[0]
                 macroPadState.displayGroup[i].text = macro[1]
         await asyncio.sleep(0)
 
@@ -384,7 +406,7 @@ async def main():
         RequestUpdateFromServer(macroPadState, serial),
         IdleState(macropad, macroPadState),
         GetServerData(serial, serverData),
-        KeyHandler(macropad, macroPadState, serial),
+        KeyHandler(macropad, macroPadState),
         EncoderHandler(macropad, macroPadState),
         ModeChangeHandler(macroPadState),
         LoadApp(macropad, macroPadState),
