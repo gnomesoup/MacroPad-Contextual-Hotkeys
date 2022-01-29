@@ -2,10 +2,9 @@ from adafruit_board_toolkit.circuitpython_serial import data_comports
 import asyncio
 import json
 from serial_asyncio import open_serial_connection
-from serial_asyncio import serial
+from serial import SerialException
 import sys
-# import time
-
+import tracemalloc
 
 PLATFORM = sys.platform
 WINDOW_LIBRARY = None
@@ -110,23 +109,16 @@ else:
     print(sys.version)
     exit()
 
-async def DetectPort(macropadData:MacropadData) -> str:
-    """Check to see if a Macropad is connected"""
-    while True:
-        comports = data_comports()
-        ports = [
-            comport.device for comport in comports
-            if comport.description.startswith("Macropad")
-        ]
-        if len(ports) > 0:
-            if macropadData.Port != ports[0]:
-                print(f"macropad port: {ports[0]}")
-                macropadData.Port = ports[0]
-        else:
-            if macropadData.Port is not None:
-                print("Macropad not found")
-                macropadData.Port = None
-        await asyncio.sleep(1)
+def DetectPort():
+    comports = data_comports()
+    ports = [
+        comport.device for comport in comports
+        if comport.description.startswith("Macropad")
+    ]
+    if len(ports) > 0:
+        return ports[0]
+    else:
+        return ""
 
 async def OpenSerialConnection(data:MacropadData):
     port = ""
@@ -181,7 +173,7 @@ async def SerialRead(
             try:
                 data = await macropadData.reader.readline()
                 macropadData.Incoming = json.loads(data)
-            except (ValueError, serial.SerialException):
+            except (ValueError, SerialException):
                 macropadData.reader = None
         else:
             await asyncio.sleep(0)
@@ -202,10 +194,11 @@ async def IncomingHandler(
 
 async def main():
     macropadData = MacropadData()
+    macropadData.Port = DetectPort()
     activeWindowData = ActiveWindowData()
     await asyncio.gather(
         GetActiveWindowData(activeWindowData, macropadData),
-        DetectPort(macropadData),
+        # WatchPort(macropadData),
         IncomingHandler(macropadData, activeWindowData),
         OpenSerialConnection(macropadData),
         SerialWrite(macropadData),
