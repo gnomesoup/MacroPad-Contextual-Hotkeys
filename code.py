@@ -162,16 +162,20 @@ def KeyPressedAction(
     print(macro)
     sequence = macro[2]
     if sequence:
-        for item in sequence:
-            if isinstance(item, int):
-                if item >= 0:
-                    macropad.keyboard.press(item)
+        try:
+            for item in sequence:
+                if isinstance(item, int):
+                    if item >= 0:
+                        macropad.keyboard.press(item)
+                    else:
+                        macropad.keyboard.release(-item)
+                elif isinstance(item, float):
+                    time.sleep(item)
                 else:
-                    macropad.keyboard.release(-item)
-            elif isinstance(item, float):
-                time.sleep(item)
-            else:
-                macropad.keyboard_layout.write(item)
+                    macropad.keyboard_layout.write(item)
+        except TypeError as e:
+            print(f"TypeError: {e}")
+            print("Are the macro keys in a list?")
     return
 
 def KeyReleaseAction(
