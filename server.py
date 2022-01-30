@@ -22,7 +22,6 @@ class MacropadData:
         self.Connected = False
         self.Port = ""
         self.Buffer = ""
-        self.Message = b""
         self.Incoming = ""
         self.ReadStart = None
         self.reader = None
@@ -123,16 +122,21 @@ def DetectPort():
 async def OpenSerialConnection(data:MacropadData):
     port = ""
     while True:
-        if data.Port and data.Port != port:
-            data.reader, data.writer = await open_serial_connection(
-                url=data.Port,
-                baudrate=9600
-            )
-            port = data.Port
-        elif not data.Port and data.Port != port:
+        if not data.Connected:
+            port = DetectPort()
+            if port:
+                try:
+                    data.reader, data.writer = await open_serial_connection(
+                        url=port,
+                        baudrate=9600
+                    )
+                    data.Connected = True
+                    print("Connected to MacroPad")
+                except SerialException:
+                    data.Connected = False
+        elif not data.Connected:
             data.reader = None
             data.writer = None
-            port = data.Port
         await asyncio.sleep(2)
 
 async def GetActiveWindowData(
@@ -144,37 +148,50 @@ async def GetActiveWindowData(
         if currentWindow != windowData.WindowName:
             print(currentWindow)
             windowData.WindowName = currentWindow
-            macropadData.Message = json.dumps(
+            message = json.dumps(
                 {
                     "name": currentWindow,
                     "platform": PLATFORM,
                     "version": MESSAGE_VERSION
                 }
             )
+            SerialWrite(macropadData.writer, message)
         await asyncio.sleep(0.1)
 
-async def SerialWrite(
-    macropadData: MacropadData,
+def SerialWrite(
+    writer, message
 ):
     """Get/Send Messages to the Macropad"""
-    while True:
-        if macropadData.writer:
-            if macropadData.Message:
-                print(f"Serial Write {macropadData.Message.encode('utf-8')}")
-                macropadData.writer.write(macropadData.Message.encode("utf-8"))
-                macropadData.Message = b""
-        await asyncio.sleep(0.1)
+    tmFilter = tracemalloc.Filter(
+        inclusive=False,
+        filename_pattern="*tracemalloc.py*"
+    )
+    # baseSnapshot = tracemalloc.take_snapshot()
+    # baseSnapshot = baseSnapshot.filter_traces([tmFilter])
+    if writer and message:
+        snapshot = tracemalloc.take_snapshot()
+        snapshot = snapshot.filter_traces([tmFilter])
+        stats = snapshot.statistics('filename')
+        # stats = baseSnapshot.compare_to(snapshot, 'filename')
+        print("--------Memory Stats---------")
+        for stat in stats[:8]:
+            print(stat)
+        print(f"Serial Write {message.encode('utf-8')}")
+        writer.write(message.encode("utf-8"))
 
 async def SerialRead(
     macropadData: MacropadData,
 ):
     while True:
-        if macropadData.reader:
+        if macropadData.Connected:
             try:
                 data = await macropadData.reader.readline()
                 macropadData.Incoming = json.loads(data)
-            except (ValueError, SerialException):
-                macropadData.reader = None
+            except SerialException:
+                macropadData.Connected = False
+                print("Disconnected from Macropad")
+            except ValueError:
+                pass
         else:
             await asyncio.sleep(0)
 
@@ -198,15 +215,14 @@ async def main():
     activeWindowData = ActiveWindowData()
     await asyncio.gather(
         GetActiveWindowData(activeWindowData, macropadData),
-        # WatchPort(macropadData),
         IncomingHandler(macropadData, activeWindowData),
         OpenSerialConnection(macropadData),
-        SerialWrite(macropadData),
         SerialRead(macropadData),
     )
 
 if __name__ == "__main__":
     try:
+        tracemalloc.start()
         asyncio.run(main())
     except KeyboardInterrupt:
         print("")
