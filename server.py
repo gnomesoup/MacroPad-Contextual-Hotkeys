@@ -13,12 +13,21 @@ SERVER_VERSION = "2022-02.0"
 MESSAGE_VERSION = "1"
 
 def getActiveWindowMac():
+    """Function to mimic pygetwindow behavior due to a memory leak in the for
+    loop of the getActiveWindow on a mac.
+
+    Returns:
+        str: String identifying the active window
+    """
     windows = Quartz.CGWindowListCopyWindowInfo(
         Quartz.kCGWindowListExcludeDesktopElements | Quartz.kCGWindowListOptionOnScreenOnly,
         Quartz.kCGNullWindowID
     )
-    for i in range(len(windows)):
+
     # for win in windows:
+    # For loop in library causes a memory leak in mac OS. Looping over a range
+    # solves the leak.
+    for i in range(len(windows)):
         win = windows[i]
         if win['kCGWindowLayer'] == 0:
             return '%s' % (
