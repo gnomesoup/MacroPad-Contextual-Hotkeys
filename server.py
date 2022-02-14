@@ -1,7 +1,7 @@
 from adafruit_board_toolkit.circuitpython_serial import data_comports
 import asyncio
 import json
-# from pygetwindow import getActiveWindow
+from pygetwindow import getActiveWindow
 import Quartz
 from serial_asyncio import open_serial_connection
 from serial import SerialException
@@ -92,7 +92,10 @@ async def GetActiveWindowData(
 ):
     """Poll the computer for it's active window"""
     while True:
-        currentWindow = getActiveWindowMac().strip()
+        if windowData.Platform == "mac":
+            currentWindow = getActiveWindowMac().strip()
+        else:
+            currentWindow = getActiveWindow().strip()
         if currentWindow != windowData.WindowName:
             print(currentWindow)
             windowData.WindowName = currentWindow
