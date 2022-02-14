@@ -1,13 +1,15 @@
-# MACROPAD Hotkeys example: Firefox web browser for Mac
+# MACROPAD Hotkeys example: zoom for Mac
 
 from adafruit_hid.keycode import Keycode  # REQUIRED if using Keycode.* values
 
 app = {
-    # REQUIRED dict, must be named 'app'
-    'name': 'StarLeaf',  # Application name
-    'appName': 'StarLeaf',
-    'platform': 'mac',
-    'macros': [           # List of button macros...
+    # REQUIRED dict, must be named "app"
+    "name": "zoom",  # Application name
+    "appName": "zoom.us",
+    "platform": "mac",
+    "macros": [
+        # List of button macros...
+        # Macros set to "None" will be pulled from the default macro list
         # COLOR    LABEL    KEY SEQUENCE
         # 1st row ----------
         None,
@@ -22,18 +24,18 @@ app = {
         None,
         None,
         # 4th row ----------
-        (0xFF0000, 'Mute', [
+        (0xFF0000, "Mute", [
                 Keycode.COMMAND,
                 Keycode.SHIFT,
                 Keycode.A
             ]
         ),
-        (0xFFFF00, 'Video', [
+        (0xFFFF00, "Video", [
                 Keycode.COMMAND,
                 Keycode.SHIFT,
                 Keycode.V
             ]
         ),
-        (0x000000, '', ''),
+        None,
     ],
 }

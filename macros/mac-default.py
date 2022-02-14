@@ -56,7 +56,7 @@ app = {
             -Keycode.ENTER
         ]),
         # 3rd row ----------
-        (0xa000a0, 'FFPri', [
+        (0xFF4400, 'FFox', [
             Keycode.COMMAND,
             Keycode.SPACE,
             -Keycode.SPACE,
@@ -65,10 +65,6 @@ app = {
             'firefox',
             Keycode.ENTER,
             -Keycode.ENTER,
-            0.1,
-            Keycode.COMMAND,
-            Keycode.SHIFT,
-            Keycode.P
         ]),
         (0x000000, '', ''),
         (0x000000, '', ''),
