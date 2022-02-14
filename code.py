@@ -12,8 +12,8 @@ import usb_cdc
 
 MACRO_FOLDER = "/macros"
 DEFAULT_APP = "mac-Default"
-CLIENT_VERSION = "2022-01.0"
-MESSAGING_VERSION = "0"
+CLIENT_VERSION = "2022-02.0"
+MESSAGING_VERSION = "1"
 
 class ServerData:
     """Class to store incoming serial data from the host device"""
@@ -375,9 +375,8 @@ async def main():
                 NameError,
                 SyntaxError,
                 TypeError,
-            ):
-                print(f"Error Loading Macros: {filename}")
-
+            ) as e:
+                print(f"Error Loading Macros: {filename}\n{e}")
     for keyIndex in range(12):
         x = keyIndex % 3
         y = keyIndex // 3

@@ -1,20 +1,38 @@
 from adafruit_board_toolkit.circuitpython_serial import data_comports
 import asyncio
 import json
+# from pygetwindow import getActiveWindow
+import Quartz
 from serial_asyncio import open_serial_connection
 from serial import SerialException
 import sys
-import tracemalloc
 
 PLATFORM = sys.platform
 WINDOW_LIBRARY = None
-SERVER_VERSION = "2022-01.0"
+SERVER_VERSION = "2022-02.0"
 MESSAGE_VERSION = "1"
+
+def getActiveWindowMac():
+    windows = Quartz.CGWindowListCopyWindowInfo(
+        Quartz.kCGWindowListExcludeDesktopElements | Quartz.kCGWindowListOptionOnScreenOnly,
+        Quartz.kCGNullWindowID
+    )
+    for i in range(len(windows)):
+    # for win in windows:
+        win = windows[i]
+        if win['kCGWindowLayer'] == 0:
+            return '%s' % (
+                win[Quartz.kCGWindowOwnerName]
+            ) # Temporary. For now, we'll just return the title of the active window.
 
 class ActiveWindowData:
     """Handle Active Window information across async calls"""
     def __init__(self) -> None:
         self.WindowName = ""
+        self.Platform = "linux" if PLATFORM in ['linux', 'linux2'] else \
+            "windows" if PLATFORM in ['Windows', 'win32', 'cygwin'] else \
+            "mac" if PLATFORM in ["Mac", "darwin", "os2", "os2emx"] else \
+            PLATFORM
 
 class MacropadData:
     """Handle MacroPad serial data across async calls"""
@@ -37,76 +55,6 @@ class MacropadData:
     def connection_lost(self, exc: Exception) -> None:
         print("connection lost")
         self.transport.loop.stop()
-
-if PLATFORM in ['linux', 'linux2']:
-    print("Loading setting for linux")
-    PLATFORM = "linux"
-    if WINDOW_LIBRARY is None:
-        try:
-            import wnck
-            WINDOW_LIBRARY = "wnck"
-            def GetActiveWindowName() -> str:
-                active_window_name = ""
-                screen = wnck.screen_get_default()
-                screen.force_update()
-                window = screen.get_active_window()
-                if window is not None:
-                    pid = window.get_pid()
-                    with open("/proc/{pid}/cmdline".format(pid=pid)) as f:
-                        active_window_name = f.read()
-                return active_window_name
-        except ImportError:
-            WINDOW_LIBRARY = None
-    if WINDOW_LIBRARY is None:
-        try:
-            from gi.repository import Gtk, Wnck
-            WINDOW_LIBRARY = "gi"
-            def GetActiveWindowName() -> str:
-                active_window_name = ""
-                Gtk.init([])  # necessary if not using a Gtk.main() loop
-                screen = Wnck.Screen.get_default()
-                screen.force_update()  # recommended per Wnck documentation
-                active_window = screen.get_active_window()
-                pid = active_window.get_pid()
-                with open("/proc/{pid}/cmdline".format(pid=pid)) as f:
-                    active_window_name = f.read()
-                return active_window_name
-        except ImportError:
-            WINDOW_LIBRARY = None
-elif PLATFORM in ["Windows", "win32", "cygwin"]:
-    PLATFORM = "windows"
-    print("Loading setting for windows")
-    import win32gui
-    import win32process
-    from wmi import WMI
-    def GetActiveWindowName() -> str:
-        active_window_name = ""
-        wmi = WMI()
-        window = win32gui.GetForegroundWindow()
-        try: 
-            _, pid = win32process.GetWindowThreadProcessId(window)
-            for process in wmi.query(
-                f"SELECT Description from Win32_Process "
-                f"WHERE processId = {str(pid)}"
-            ):
-                exe = (process.Description).replace(".exe", "")
-            active_window_name = exe
-        except:
-            active_window_name = win32gui.GetWindowText(window)
-        return active_window_name
-elif PLATFORM in ["Mac", "darwin", "os2", "os2emx"]:
-    PLATFORM = "mac"
-    print("Loading setting for mac")
-    from AppKit import NSWorkspace
-    def GetActiveWindowName() -> str:
-        activeApplication = NSWorkspace.sharedWorkspace().activeApplication()
-        if activeApplication is None:
-            return None
-        return activeApplication['NSApplicationName']
-else:
-    print(f"sys.platform={PLATFORM} is unknown. Please report.")
-    print(sys.version)
-    exit()
 
 def DetectPort():
     comports = data_comports()
@@ -144,39 +92,25 @@ async def GetActiveWindowData(
 ):
     """Poll the computer for it's active window"""
     while True:
-        currentWindow = GetActiveWindowName()
+        currentWindow = getActiveWindowMac().strip()
         if currentWindow != windowData.WindowName:
             print(currentWindow)
             windowData.WindowName = currentWindow
             message = json.dumps(
                 {
                     "name": currentWindow,
-                    "platform": PLATFORM,
+                    "platform": windowData.Platform,
                     "version": MESSAGE_VERSION
                 }
             )
             SerialWrite(macropadData.writer, message)
-        await asyncio.sleep(0.1)
+        await asyncio.sleep(0.3)
 
 def SerialWrite(
     writer, message
 ):
     """Get/Send Messages to the Macropad"""
-    tmFilter = tracemalloc.Filter(
-        inclusive=False,
-        filename_pattern="*tracemalloc.py*"
-    )
-    # baseSnapshot = tracemalloc.take_snapshot()
-    # baseSnapshot = baseSnapshot.filter_traces([tmFilter])
     if writer and message:
-        snapshot = tracemalloc.take_snapshot()
-        snapshot = snapshot.filter_traces([tmFilter])
-        stats = snapshot.statistics('filename')
-        # stats = baseSnapshot.compare_to(snapshot, 'filename')
-        print("--------Memory Stats---------")
-        for stat in stats[:8]:
-            print(stat)
-        print(f"Serial Write {message.encode('utf-8')}")
         writer.write(message.encode("utf-8"))
 
 async def SerialRead(
@@ -214,15 +148,14 @@ async def main():
     macropadData.Port = DetectPort()
     activeWindowData = ActiveWindowData()
     await asyncio.gather(
-        GetActiveWindowData(activeWindowData, macropadData),
         IncomingHandler(macropadData, activeWindowData),
         OpenSerialConnection(macropadData),
         SerialRead(macropadData),
+        GetActiveWindowData(activeWindowData, macropadData),
     )
 
 if __name__ == "__main__":
     try:
-        tracemalloc.start()
         asyncio.run(main())
     except KeyboardInterrupt:
         print("")
